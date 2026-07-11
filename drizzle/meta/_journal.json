@@ -15,6 +15,13 @@
       "when": 1783626554751,
       "tag": "0001_cloudy_cloak",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783749385109,
+      "tag": "0002_outstanding_the_twelve",
+      "breakpoints": true
     }
   ]
 }

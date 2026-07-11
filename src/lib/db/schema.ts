@@ -1,5 +1,5 @@
 
-import { equipmentConditionEnum, equipmentStatusEnum } from "@/utils/extraForSchema";
+import { bookingStatusEnum, equipmentConditionEnum, equipmentStatusEnum } from "@/utils/extraForSchema";
 import { relations } from "drizzle-orm";
 import { pgTable, text, timestamp, boolean, index, uuid, integer } from "drizzle-orm/pg-core";
 
@@ -101,11 +101,34 @@ export const EquipmentTable = pgTable("equipment", {
     .notNull(),
 })
 
+export const BookingTable=pgTable("bookings",{
+  id:uuid("id").primaryKey().defaultRandom(),
+  equipmentId:uuid("equipment_id").references(()=>EquipmentTable.id,{onDelete:"restrict"}).notNull(),
+  userId:text("user_id").references(()=>user.id,{onDelete:"cascade"}).notNull(),
+
+  startTime:timestamp("start_time").notNull(),
+  endTime:timestamp("end_time").notNull(),
+
+  status:bookingStatusEnum("status").default("pending").notNull(),
+  purpose:text("purpose"),
+
+  reviewedById:text("reviewed_by_id"),
+  reviewedAt:timestamp("reviewed_at"),
+
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => /* @__PURE__ */ new Date())
+    .notNull(),
+})
+
 // relations
 
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
   accounts: many(account),
+  bookings:many(BookingTable,{relationName:"user_bookings"}),
+  reviewedBookings:many(BookingTable,{relationName:"reviewed_bookings"})
 }));
 
 export const sessionRelations = relations(session, ({ one }) => ({
@@ -121,3 +144,26 @@ export const accountRelations = relations(account, ({ one }) => ({
     references: [user.id],
   }),
 }));
+
+export const equipmentRelations=relations(EquipmentTable,({many})=>({
+  bookings:many(BookingTable)
+}))
+
+export const bookingRelations=relations(BookingTable,({one})=>({
+
+  equipment:one(EquipmentTable,{
+    fields:[BookingTable.equipmentId],
+    references:[EquipmentTable.id],
+  }),
+  users:one(user,{
+    fields:[BookingTable.userId],
+    references:[user.id],
+    relationName:"user_bookings"
+  }),
+  reviewer:one(user,{
+    fields:[BookingTable.reviewedById],
+    references:[user.id],
+    relationName:"reviewed_bookings"
+  })
+
+}))

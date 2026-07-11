@@ -37,7 +37,7 @@ export default async function EquipmentPage({ searchParams }:
                                 variant={category === equipment.value ? "default" : "outline"}
                                 className="rounded-full h-8 px-4 text-xs"
                             >
-                                {equipment.label}
+                                {equipment.label} 
                             </Button>
                         </Link>
                     ))

@@ -15,3 +15,4 @@ export const TIME_SLOTS = [
   { id: "16:00", label: "16:00 - 18:00", startHour: 16, endHour: 18 },
   { id: "18:00", label: "18:00 - 20:00", startHour: 18, endHour: 20 },
 ] as const;
+

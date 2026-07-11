@@ -127,7 +127,7 @@ export default async function EquipmentDetailsPage({
           equipmentId={equipment.id} 
           equipmentName={equipment.name}
           requiresApproval={equipment.requireApproval ?? true} 
-          bookedSlots={[]}
+          // bookedSlots={[]}
         />
       </div>
       

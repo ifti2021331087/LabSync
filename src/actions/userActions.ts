@@ -4,7 +4,7 @@ import { bookingSchema } from "@/components/schama/booking"
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { BookingTable, EquipmentTable } from "@/lib/db/schema";
-import { and, eq, gt, lt, or } from "drizzle-orm";
+import { and, eq, gt, gte, inArray, lt, lte, or } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import z from "zod"
@@ -97,5 +97,35 @@ export const createBookingAction = async (data: z.infer<typeof bookingSchema>) =
             success: false,
             error: "An unexpected error occurred while booking..."
         }
+    }
+}
+
+export const getDailyBookedSlotsAction = async (equipmentId: string, dateString: string) => {
+
+    const startOfDay = new Date(dateString);
+    startOfDay.setHours(0, 0, 0, 0)
+    const endOfDay = new Date(dateString);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    try {
+        const dailyBookings=await db.select({startTime:BookingTable.startTime})
+        .from(BookingTable).where(
+            and(
+                eq(BookingTable.equipmentId,equipmentId),
+                gte(BookingTable.startTime,startOfDay),
+                lte(BookingTable.endTime,endOfDay),
+                inArray(BookingTable.status,['pending','approved','late','active'])
+            )
+        )
+
+        const bookedSlotIds=dailyBookings.map((booking)=>{
+            const hour=new Date(booking.startTime).toString();
+            return `${hour.toString().padStart(2,'0')}:00`
+        })
+        return { success: true, bookedSlots: bookedSlotIds };
+    }
+    catch (error) {
+        console.error("Error fetching daily slots:", error);
+        return { success: false, bookedSlots: [] };
     }
 }

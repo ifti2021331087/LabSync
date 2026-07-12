@@ -120,9 +120,6 @@ export const pendingBookingAction = async () => {
     }
 
     try {
-        // const query=await db.query.BookingTable.findMany({
-        //     where:(BookingTable,{eq})=>eq(BookingTable.status,'pending')
-        // })
         const result = await db.select(
             {
                 id:BookingTable.id,

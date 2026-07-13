@@ -4,7 +4,7 @@ import { equipmentSchema } from "@/components/schama/equipment";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { BookingTable, EquipmentTable, user } from "@/lib/db/schema";
-import { count, eq } from "drizzle-orm";
+import { and, count, eq, gte, inArray, lte } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import z from "zod";
@@ -122,14 +122,14 @@ export const pendingBookingAction = async () => {
     try {
         const result = await db.select(
             {
-                id:BookingTable.id,
-                userName:user.name,
-                equipmentName:EquipmentTable.name,
-                equipmentCategory:EquipmentTable.category,
-                equipmentTag:EquipmentTable.internalTag,
-                startTime:BookingTable.startTime,
-                endTime:BookingTable.endTime,
-                status:BookingTable.status
+                id: BookingTable.id,
+                userName: user.name,
+                equipmentName: EquipmentTable.name,
+                equipmentCategory: EquipmentTable.category,
+                equipmentTag: EquipmentTable.internalTag,
+                startTime: BookingTable.startTime,
+                endTime: BookingTable.endTime,
+                status: BookingTable.status
             }
         ).from(BookingTable)
             .leftJoin(EquipmentTable, () => eq(BookingTable.equipmentId, EquipmentTable.id))
@@ -143,7 +143,7 @@ export const pendingBookingAction = async () => {
     }
 }
 
-export const togglePendingStatus = async (bookingId:string,newStatus: "active" | "pending" | "approved" | "returned" | "denied" | "cancelled" | "late") => {
+export const togglePendingStatus = async (bookingId: string, newStatus: "active" | "pending" | "approved" | "returned" | "denied" | "cancelled" | "late") => {
     const session = await auth.api.getSession({
         headers: await headers()
     })
@@ -152,23 +152,88 @@ export const togglePendingStatus = async (bookingId:string,newStatus: "active" |
         throw new Error("You must be admin to toggle the pending request.");
     }
 
-    try{
+    try {
         await db.update(BookingTable).set(
             {
-                status:newStatus
+                status: newStatus
             }
-        ).where(eq(BookingTable.id,bookingId))
+        ).where(eq(BookingTable.id, bookingId))
 
         revalidatePath("/admin/approval")
         revalidatePath("/admin/schedule")
-        return{
-            success:true
+        return {
+            success: true
         }
     }
-    catch(e){
+    catch (e) {
         console.log(e);
-        return{
-            success:false
+        return {
+            success: false
         }
+    }
+}
+
+export const getWeeklyEquipmentStatsAction = async (equipmentId: string, weekStartDateStr: string) => {
+
+    const startDate = new Date(weekStartDateStr);
+    startDate.setHours(0, 0, 0, 0)
+    const endDate = new Date(startDate);
+    endDate.setDate(startDate.getDate() + 6);
+    endDate.setHours(23, 59, 59, 999);
+
+    try {
+        const weeklyBookings = await db.select(
+            {
+                userName: user.name,
+                startTime: BookingTable.startTime,
+                endTime: BookingTable.endTime,
+                status:BookingTable.status
+            })
+            .from(BookingTable)
+            .leftJoin(user, () => eq(BookingTable.userId, user.id))
+            .where(
+                and(
+                    eq(BookingTable.equipmentId, equipmentId),
+                    gte(BookingTable.startTime, startDate),
+                    lte(BookingTable.endTime, endDate),
+                    inArray(BookingTable.status, ['pending', 'approved'])
+                )
+            )
+
+        const stats = Array.from({ length: 7 }, () => ({
+            pending: [] as { userName: string, slot: string }[],
+            approved: [] as { userName: string, slot: string }[],
+        }))
+        weeklyBookings.map((booking)=>{
+            const bookingDate=new Date(booking.startTime);
+            bookingDate.setHours(0,0,0,0);
+            const diffTime=bookingDate.getTime()-startDate.getTime();
+            const index=Math.floor(diffTime/(24*60*60*1000));
+
+            if(index>=0 && index<7){
+                const userName=booking.userName||"unknown user";
+                const startHour=booking.startTime.getHours().toString().padStart(2,'0');
+                const endHour=booking.endTime.getHours().toString().padStart(2,'0');
+
+                const bookingDetails={
+                    userName:booking.userName||"unknown user",
+                    slot:`${startHour}:00-${endHour}:00`
+                }
+                if(booking.status==='approved'){
+                    stats[index].approved.push(bookingDetails)
+                }
+                if(booking.status==='pending'){
+                    stats[index].pending.push(bookingDetails)
+                }
+            }
+        })
+        return stats;
+    }
+    catch (error) {
+        console.error("Error fetching daily slots:", error);
+        return Array.from({ length: 7 }, () => ({
+            pending: [] ,
+            approved: [],
+        }))
     }
 }

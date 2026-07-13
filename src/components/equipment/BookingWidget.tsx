@@ -30,6 +30,11 @@ export default function BookingWidget({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
 
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const maxDate = new Date(today);
+  maxDate.setDate(today.getDate() + 6);
+
   console.log(bookedSlots);
   useEffect(() => {
     const fetchSlots = async () => {
@@ -139,8 +144,8 @@ export default function BookingWidget({
               setDate(newDate);
               setSelectedSlotId(null);
             }}
-            disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
-            className="rounded-md"
+            disabled={(date) => date < today || date > maxDate}
+            className="rounded-md w-full"
           />
         </div>
       </div>

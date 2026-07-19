@@ -1,9 +1,10 @@
 "use server";
 
 import { bookingSchema } from "@/components/schama/booking"
+import { reportDamageSchema } from "@/components/schama/reportDamage";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { BookingTable, EquipmentTable, user } from "@/lib/db/schema";
+import { BookingTable, DamageReportTable, EquipmentTable, user } from "@/lib/db/schema";
 import { and, eq, gt, gte, inArray, lt, lte, or, count, min, asc, desc } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
@@ -325,6 +326,57 @@ export const getDashboardStatsAction = async () => {
     } catch (e) {
         console.error("Error fetching stats:", e);
         return null;
+    }
+}
+
+export const getAllEquipmentListAction=async()=>{
+    try{
+        const data=await db.select({
+            id:EquipmentTable.id,
+            title:EquipmentTable.name
+        })
+        .from(EquipmentTable)
+
+        return data;
+    }
+    catch(e){
+        console.log(e);
+        return [];
+    }
+}
+
+export const createReportAction=async(data:z.infer<typeof reportDamageSchema>)=>{
+    const session = await auth.api.getSession({
+        headers: await headers()
+    })
+    if (!session?.user.id) {
+        return {
+            success: false,
+            error: "You must be logged in to report."
+        }
+    }
+
+    const validatedData=reportDamageSchema.parse(data);
+    try{
+        await db.insert(DamageReportTable).values({
+            equipmentId:validatedData.equipmentId as string,
+            reportedById:session.user.id as string,
+            title:validatedData.title as string,
+            description:validatedData.description as string,
+            severity:validatedData.severity,
+            imageUrl:validatedData.imageUrl as string
+        })
+
+        return{
+            success:true,
+        }
+    }
+    catch(e){
+        console.log("Report creation error: ",e);
+        return{
+            success:false,
+            error:"Unexpected error while creating the report."
+        }
     }
 }
 

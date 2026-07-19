@@ -11,3 +11,5 @@ export const bookingStatusEnum = pgEnum("booking_status", [
   "cancelled",
   "late"       
 ]);
+export const damageSeverityEnum = pgEnum("damage_severity", ["cosmetic", "functional", "critical"]);
+export const damageStatusEnum = pgEnum("damage_status", ["open", "investigating", "resolved"]);

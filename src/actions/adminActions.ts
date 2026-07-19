@@ -3,8 +3,9 @@
 import { equipmentSchema } from "@/components/schama/equipment";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { BookingTable, EquipmentTable, user } from "@/lib/db/schema";
-import { and, asc, count, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { BookingTable, DamageReportTable, EquipmentTable, user } from "@/lib/db/schema";
+import { and, asc, count, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { PgTableWithColumns, PgColumn } from "drizzle-orm/pg-core";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import z from "zod";
@@ -378,7 +379,7 @@ export const returnEquipmentAction = async (bookingId: string) => {
         const [booking] = await db.select({
             equipmentId: BookingTable.equipmentId,
             startTime: BookingTable.startTime,
-            endTime:BookingTable.endTime,
+            endTime: BookingTable.endTime,
         })
             .from(BookingTable)
             .where(eq(BookingTable.id, bookingId));
@@ -402,5 +403,148 @@ export const returnEquipmentAction = async (bookingId: string) => {
     } catch (e) {
         console.error("Return Error: ", e);
         return { success: false, error: "Failed to return" };
+    }
+}
+
+// damage-report-data
+
+export const getReportsDataAction = async (status?: string) => {
+    const session = await auth.api.getSession({
+        headers: await headers()
+    })
+
+    if (!session || session.user.role !== 'admin') {
+        throw new Error("You must be admin to get the reports");
+    }
+
+    const conditions = status ? eq(DamageReportTable.status, status as "open" | "investigating" | "resolved") : undefined;
+    try {
+        const data = await db.select({
+            id: DamageReportTable.id,
+            equipmentTitle: EquipmentTable.name,
+            equipmentTag: EquipmentTable.internalTag,
+            reportedBy: user.name,
+            title: DamageReportTable.title,
+            description: DamageReportTable.description,
+            severity: DamageReportTable.severity,
+            imageUrl: DamageReportTable.imageUrl,
+            status: DamageReportTable.status,
+            createdAt: DamageReportTable.createdAt,
+
+        }).from(DamageReportTable)
+            .leftJoin(user, eq(user.id, DamageReportTable.reportedById))
+            .leftJoin(EquipmentTable, eq(EquipmentTable.id, DamageReportTable.equipmentId))
+            .where(conditions).orderBy(desc(DamageReportTable.createdAt))
+
+        return data;
+    }
+    catch (e) {
+        console.log("Admin report finding error: ", e);
+        return [];
+    }
+}
+
+export const getDamageReportDetailsByIdAction = async (reportId: string) => {
+    const session = await auth.api.getSession({
+        headers: await headers()
+    });
+
+    if (!session || session.user.role !== 'admin') {
+        throw new Error("You must be admin to get the report details");
+    }
+
+    try {
+        // Using Drizzle's Relational API - No aliases or manual joins needed!
+        const report = await db.query.DamageReportTable.findFirst({
+            where: eq(DamageReportTable.id, reportId),
+            with: {
+                equipment: true, // Uses the 'equipment' relation from your schema
+                reporter: true,  // Uses the 'reporter' relation from your schema
+                resolver: true,  // Uses the 'resolver' relation from your schema
+            }
+        });
+
+        if (!report) return null;
+
+        // Flatten the result so the UI component can read it easily
+        return {
+            id: report.id,
+            title: report.title,
+            description: report.description,
+            severity: report.severity,
+            status: report.status,
+            imageUrl: report.imageUrl,
+            createdAt: report.createdAt,
+            resolvedAt: report.resolvedAt,
+
+            // Map the nested relational data to the flat properties the UI expects
+            equipmentName: report.equipment?.name || null,
+            equipmentTag: report.equipment?.internalTag || null,
+            reporterName: report.reporter?.name || null,
+            resolverName: report.resolver?.name || null,
+        };
+    }
+    catch (e) {
+        console.error(e);
+        return null;
+    }
+}
+
+export const handleInvestigateAction = async (reportId: string) => {
+    const session = await auth.api.getSession({
+        headers: await headers()
+    });
+
+    if (!session || session.user.role !== 'admin') {
+        throw new Error("You must be admin to investigate the report.");
+    }
+    try {
+        await db.update(DamageReportTable).set({
+            status: 'investigating',
+        }).where(eq(DamageReportTable.id, reportId))
+
+        revalidatePath(`/admin/damageReport/${reportId}`);
+        revalidatePath(`/admin/damageReport`, 'layout');
+
+        return {
+            success: true
+        }
+
+    }
+    catch (e) {
+        console.log("Investigation toggle error: ", e);
+        return {
+            success: false,
+            error: "Unexpected error while investigating the report..."
+        }
+    }
+}
+export const handleResolveAction = async (reportId: string) => {
+    const session = await auth.api.getSession({
+        headers: await headers()
+    });
+
+    if (!session || session.user.role !== 'admin') {
+        throw new Error("You must be admin to resolve the report.");
+    }
+    try {
+        await db.update(DamageReportTable).set({
+            status: 'resolved',
+            resolvedById: session.user.id,
+            resolvedAt: new Date()
+        }).where(eq(DamageReportTable.id, reportId))
+
+        revalidatePath(`/admin/damageReport/${reportId}`);
+        revalidatePath(`/admin/damageReport`, 'layout');
+        return {
+            success: true
+        }
+    }
+    catch (e) {
+        console.log("Resolve toggle error: ", e);
+        return {
+            success: false,
+            error: "Unexpected error while resolving the report..."
+        }
     }
 }

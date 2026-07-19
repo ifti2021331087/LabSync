@@ -1,5 +1,5 @@
 
-import { bookingStatusEnum, equipmentConditionEnum, equipmentStatusEnum } from "@/utils/extraForSchema";
+import { bookingStatusEnum, damageSeverityEnum, damageStatusEnum, equipmentConditionEnum, equipmentStatusEnum} from "@/utils/extraForSchema";
 import { relations } from "drizzle-orm";
 import { pgTable, text, timestamp, boolean, index, uuid, integer } from "drizzle-orm/pg-core";
 
@@ -123,13 +123,36 @@ export const BookingTable=pgTable("bookings",{
     .notNull(),
 })
 
+export const DamageReportTable = pgTable("damage_reports", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  equipmentId: uuid("equipment_id").references(() => EquipmentTable.id, { onDelete: "cascade" }).notNull(),
+  reportedById: text("reported_by_id").references(() => user.id).notNull(), 
+  
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  
+  severity: damageSeverityEnum("severity").notNull(),
+  status: damageStatusEnum("status").default("open").notNull(),
+  imageUrl: text("image_url"),
+
+  resolvedById: text("resolved_by_id").references(() => user.id),
+  resolvedAt: timestamp("resolved_at"),
+  
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .$onUpdate(() => /* @__PURE__ */ new Date())
+    .notNull(),
+});
+
 // relations
 
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
   accounts: many(account),
   bookings:many(BookingTable,{relationName:"user_bookings"}),
-  reviewedBookings:many(BookingTable,{relationName:"reviewed_bookings"})
+  reviewedBookings:many(BookingTable,{relationName:"reviewed_bookings"}),
+  reportedDamages: many(DamageReportTable, { relationName: "reported_damages" }),
 }));
 
 export const sessionRelations = relations(session, ({ one }) => ({
@@ -147,7 +170,8 @@ export const accountRelations = relations(account, ({ one }) => ({
 }));
 
 export const equipmentRelations=relations(EquipmentTable,({many})=>({
-  bookings:many(BookingTable)
+  bookings:many(BookingTable),
+  damageReports: many(DamageReportTable),
 }))
 
 export const bookingRelations=relations(BookingTable,({one})=>({
@@ -167,4 +191,20 @@ export const bookingRelations=relations(BookingTable,({one})=>({
     relationName:"reviewed_bookings"
   })
 
+}))
+
+export const reportRelation=relations(DamageReportTable,({one})=>({
+  equipment: one(EquipmentTable, {
+    fields: [DamageReportTable.equipmentId],
+    references: [EquipmentTable.id],
+  }),
+  reporter: one(user, {
+    fields: [DamageReportTable.reportedById],
+    references: [user.id],
+    relationName: "reported_damages",
+  }),
+  resolver: one(user, {
+    fields: [DamageReportTable.resolvedById],
+    references: [user.id],
+  }),
 }))

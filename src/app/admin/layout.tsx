@@ -79,7 +79,7 @@ export default async function AdminLayout({
                 </Link>
               </Button>
               <Button variant="ghost" className="justify-start w-full text-sm font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 dark:hover:text-zinc-100 dark:hover:bg-zinc-800 h-9 px-3" asChild>
-                <Link href="/admin/report" className="flex gap-3 items-center">
+                <Link href="/admin/damageReport" className="flex gap-3 items-center">
                   <Flag className="w-4 h-4"/> <span>Damage Report</span>
                 </Link>
               </Button>

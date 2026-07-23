@@ -1,0 +1,1 @@
+ALTER TABLE "equipment" ADD COLUMN "stock" integer DEFAULT 1 NOT NULL;

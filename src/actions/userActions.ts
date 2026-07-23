@@ -5,6 +5,7 @@ import { reportDamageSchema } from "@/components/schama/reportDamage";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { BookingTable, DamageReportTable, EquipmentTable, user } from "@/lib/db/schema";
+import { TIME_SLOTS } from "@/utils/extraUtils";
 import { and, eq, gt, gte, inArray, lt, lte, or, count, min, asc, desc } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
@@ -23,6 +24,8 @@ export async function getEquipmentDetailsById(id: string) {
         return [];
     }
 }
+
+// booking-related-action
 
 export const createBookingAction = async (data: z.infer<typeof bookingSchema>) => {
     const session = await auth.api.getSession({
@@ -102,28 +105,56 @@ export const createBookingAction = async (data: z.infer<typeof bookingSchema>) =
 }
 
 export const getDailyBookedSlotsAction = async (equipmentId: string, dateString: string) => {
-
     const startOfDay = new Date(dateString);
-    startOfDay.setHours(0, 0, 0, 0)
+    startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(dateString);
     endOfDay.setHours(23, 59, 59, 999);
 
     try {
-        const dailyBookings = await db.select({ startTime: BookingTable.startTime })
-            .from(BookingTable).where(
-                and(
-                    eq(BookingTable.equipmentId, equipmentId),
-                    gte(BookingTable.startTime, startOfDay),
-                    lte(BookingTable.endTime, endOfDay),
-                    inArray(BookingTable.status, ['pending', 'approved', 'late', 'active'])
-                )
-            )
-
-        const bookedSlotIds = dailyBookings.map((booking) => {
-            const hour = new Date(booking.startTime).toString();
-            return `${hour.toString().padStart(2, '0')}:00`
+        // 1. Fetch BOTH startTime and endTime!
+        // We also use a more robust overlap check (lt endOfDay & gt startOfDay) 
+        // to catch bookings that might cross over midnight.
+        const dailyBookings = await db.select({
+            startTime: BookingTable.startTime,
+            endTime: BookingTable.endTime
         })
-        return { success: true, bookedSlots: bookedSlotIds };
+        .from(BookingTable).where(
+            and(
+                eq(BookingTable.equipmentId, equipmentId),
+                lt(BookingTable.startTime, endOfDay),
+                gt(BookingTable.endTime, startOfDay),
+                inArray(BookingTable.status, ['pending', 'approved', 'late', 'active'])
+            )
+        );
+
+        // 2. Use a Set to automatically prevent duplicate slot IDs
+        const bookedSlotIds = new Set<string>();
+
+        // 3. Loop through every booking for this day
+        dailyBookings.forEach((booking) => {
+            const bookingStart = new Date(booking.startTime).getTime();
+            const bookingEnd = new Date(booking.endTime).getTime();
+
+            // 4. Compare the booking against your predefined TIME_SLOTS
+            TIME_SLOTS.forEach(slot => {
+                // Create Date objects representing the exact bounds of this specific slot
+                const slotStart = new Date(dateString);
+                slotStart.setHours(slot.startHour, 0, 0, 0);
+                
+                const slotEnd = new Date(dateString);
+                slotEnd.setHours(slot.endHour, 0, 0, 0);
+
+                // 5. The Overlap Formula: 
+                // A booking overlaps a slot if it starts BEFORE the slot ends 
+                // AND ends AFTER the slot starts.
+                if (bookingStart < slotEnd.getTime() && bookingEnd > slotStart.getTime()) {
+                    bookedSlotIds.add(slot.id); // e.g. adds "10:00", then "12:00", etc.
+                }
+            });
+        });
+
+        // Convert the Set back to an Array to send to the frontend
+        return { success: true, bookedSlots: Array.from(bookedSlotIds) };
     }
     catch (error) {
         console.error("Error fetching daily slots:", error);
@@ -172,40 +203,42 @@ export const getCheckoutDataAction = async () => {
     }
 }
 
-export const getPendingRequestsAction = async (userId: string) => {
+export const getPendingRequestsAction = async () => {
+    // 1. Get session safely
     const session = await auth.api.getSession({
         headers: await headers()
-    })
+    });
+
     if (!session?.user.id) {
-        return {
-            success: false,
-            error: "You must be logged in get your pending requests."
-        }
+        // Return an empty array or throw an error to keep return types consistent
+        throw new Error("You must be logged in to view your pending requests.");
     }
 
     try {
-        const data = await db.select(
-            {
-                id: BookingTable.id,
-                equipmentName: EquipmentTable.name,
-                image: EquipmentTable.imageUrl,
-                startTime: BookingTable.startTime,
-                endTime: BookingTable.endTime,
-            }
-        )
-            .from(BookingTable)
-            .leftJoin(user, () => eq(user.id, BookingTable.userId))
-            .leftJoin(EquipmentTable, () => eq(EquipmentTable.id, BookingTable.equipmentId))
-            .where(and(eq(user.id, userId), eq(BookingTable.status, 'pending')));
+        const data = await db.select({
+            id: BookingTable.id,
+            equipmentName: EquipmentTable.name,
+            image: EquipmentTable.imageUrl,
+            startTime: BookingTable.startTime,
+            endTime: BookingTable.endTime,
+        })
+        .from(BookingTable)
+        // 2. Fixed Drizzle Join Syntax (No arrow functions)
+        .leftJoin(EquipmentTable, eq(EquipmentTable.id, BookingTable.equipmentId))
+        .where(
+            and(
+                // 3. Use the secure session ID & query the BookingTable directly
+                eq(BookingTable.userId, session.user.id), 
+                eq(BookingTable.status, 'pending')
+            )
+        );
 
         return data;
     }
     catch (e) {
-        console.log("Pending request error: ", e);
+        console.error("Pending request error: ", e);
         return [];
     }
-
-
 }
 
 export const togglePendingRequestAction = async (bookingId: string) => {
@@ -239,6 +272,7 @@ export const togglePendingRequestAction = async (bookingId: string) => {
     }
 }
 
+// my-request-action
 
 export const getUserRequestsAction = async (status?: 'active' | 'pending' | 'approved' | 'returned' | 'denied' | 'cancelled' | 'late') => {
     const session = await auth.api.getSession({
@@ -321,6 +355,8 @@ export const getAllEquipmentListAction = async () => {
         return [];
     }
 }
+
+// report-creation-action
 
 export const createReportAction = async (data: z.infer<typeof reportDamageSchema>) => {
     const session = await auth.api.getSession({

@@ -37,7 +37,7 @@ export default async function Checkouts({ searchParams }: CheckoutsProps) {
   const currentPage = Number(resolvedParams.page) || 1;
   const ITEMS_PER_PAGE = 4;
 
-  const pendingRequests = await getPendingRequestsAction(userId);
+  const pendingRequests = await getPendingRequestsAction();
   if (!Array.isArray(pendingRequests)) {
     return null;
   }

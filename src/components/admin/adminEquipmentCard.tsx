@@ -1,12 +1,10 @@
 import Image from "next/image";
 import { Card } from "../ui/card";
 import { Camera } from "lucide-react";
-import { getDailyBookedSlotsAction } from "@/actions/userActions";
-
-
+import { checkEquipmentInUseAction } from "@/actions/adminActions"; // <-- Make sure this path is correct for your app
 
 interface equipmentProps {
-    id: string,
+    id: string;
     name: string;
     category: string;
     internalTag: string;
@@ -19,21 +17,11 @@ interface equipmentProps {
 }
 
 export default async function AdminEquipmentCard({ equipment }: { equipment: equipmentProps }) {
-    const date = new Date();
-    const currentHour = date.getHours();
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
     
-    const data = await getDailyBookedSlotsAction(equipment.id, startOfDay.toString());
-    const bookings = data.bookedSlots;
+    // Call the dedicated server action to check if it's currently booked
+    const statusData = await checkEquipmentInUseAction(equipment.id);
+    const isCurrentlyBooked = statusData?.inUse || false; // Fallback to false if undefined
 
-    const isCurrentlyBooked = bookings.some((booking) => {
-        const parts = booking.split(" ");
-        const hourString = parts[4].split(":")[0];
-        const bookedHour = parseInt(hourString, 10);
-
-        return currentHour >= bookedHour && currentHour < (bookedHour + 2);
-    });
     return (
         <Card className="flex flex-col p-3 shadow-sm hover:shadow-md transition-shadow border-zinc-200 dark:border-zinc-800 rounded-xl">
 
@@ -59,13 +47,14 @@ export default async function AdminEquipmentCard({ equipment }: { equipment: equ
                     </h3>
 
                     {/* Dynamic Status Badge */}
-                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded flex-shrink-0 ${equipment.equipmentStatus === 'active'
+                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded flex-shrink-0 capitalize ${
+                        equipment.equipmentStatus === 'active'
                         ? 'bg-green-50 text-green-700 dark:bg-green-500/10 dark:text-green-400'
                         : equipment.equipmentStatus === 'maintenance'
                             ? 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400'
                             : 'bg-yellow-50 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-400'
                         }`}>
-                        {isCurrentlyBooked ? "in use" : equipment.equipmentStatus === 'active' ? 'Available' : equipment.equipmentStatus}
+                        {isCurrentlyBooked ? "In Use" : equipment.equipmentStatus === 'active' ? 'Available' : equipment.equipmentStatus}
                     </span>
                 </div>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate">
@@ -73,5 +62,5 @@ export default async function AdminEquipmentCard({ equipment }: { equipment: equ
                 </p>
             </div>
         </Card>
-    )
+    );
 }

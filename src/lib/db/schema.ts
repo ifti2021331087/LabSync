@@ -107,6 +107,8 @@ export const BookingTable=pgTable("bookings",{
   equipmentId:uuid("equipment_id").references(()=>EquipmentTable.id,{onDelete:"restrict"}).notNull(),
   userId:text("user_id").references(()=>user.id,{onDelete:"cascade"}).notNull(),
 
+  accessoryIds: uuid("accessory_ids").array().default([]),
+  
   startTime:timestamp("start_time").notNull(),
   endTime:timestamp("end_time").notNull(),
 

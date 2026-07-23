@@ -4,7 +4,7 @@ import { equipmentSchema } from "@/components/schama/equipment";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { BookingTable, DamageReportTable, EquipmentTable, user, session } from "@/lib/db/schema";
-import { and, asc, count, desc, eq, gte, inArray, lte, min, ne, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, lte, min, ne, sql } from "drizzle-orm";
 import { PgTableWithColumns, PgColumn } from "drizzle-orm/pg-core";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
@@ -161,6 +161,37 @@ export const updateEquipmentStockAction = async (equipmentId: string, newStock: 
     } catch (error) {
         console.error("Error updating stock: ", error);
         return { success: false, error: "Failed to update stock" };
+    }
+}
+
+export const checkEquipmentInUseAction = async (equipmentId: string) => {
+    try {
+        const now = new Date();
+
+        const currentBookings = await db.select({ id: BookingTable.id })
+            .from(BookingTable)
+            .where(
+                and(
+                    eq(BookingTable.equipmentId, equipmentId),
+                    // Booking started before or exactly right now
+                    lte(BookingTable.startTime, now), 
+                    // Booking ends strictly after right now
+                    gt(BookingTable.endTime, now),    
+                    // Only count bookings that are actually approved or active
+                    inArray(BookingTable.status, ['approved', 'active', 'late']) 
+                )
+            );
+
+        return {
+            success: true,
+            inUse: currentBookings.length > 0
+        };
+    } catch (error) {
+        console.error("Error checking equipment in-use status:", error);
+        return {
+            success: false,
+            inUse: false
+        };
     }
 }
 

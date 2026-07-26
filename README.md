@@ -78,7 +78,7 @@ Different users, different permissions.
 |------|-------------|
 | 👨‍🎓 Student | Browse equipment, create requests, report damage |
 | 👨‍🏫 Faculty | Manage departmental resources, approve workflows |
-| 👨‍💼 Admin | Full inventory, users, organizations, approvals |
+| 👨‍💼 Admin | Full inventory, users, approvals |
 
 Authentication includes:
 

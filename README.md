@@ -201,8 +201,6 @@ The project follows clean architectural principles with:
 
 # 📂 Project Highlights
 
-✔ Multi-tenant architecture
-
 ✔ Secure authentication
 
 ✔ Server-side validation

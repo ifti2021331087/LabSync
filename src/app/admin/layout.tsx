@@ -7,8 +7,8 @@ import { redirect } from "next/navigation";
 import AdminSidebar from "@/components/admin/adminSidebar";
 
 export const metadata: Metadata = {
-  title: "Admin Equipment",
-  description: "Admin Equipment Dashboard",
+  title: "LabSync",
+  description: "LabSync Dashboard",
 };
 
 export default async function AdminLayout({

@@ -28,7 +28,7 @@ export default function ManageReportButton({ reportDetails }: { reportDetails: r
             handleInvestigateAction(reportId)
                 .then((data) => {
                     if (data.success) {
-                        toast.success("Report investigation successful.");
+                        toast.success("Report is under investigation.");
                     } else {
                         toast.error("Unexpected error while investigating.");
                     }

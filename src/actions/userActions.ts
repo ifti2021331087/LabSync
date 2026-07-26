@@ -4,13 +4,14 @@ import { bookingSchema } from "@/components/schama/booking"
 import { reportDamageSchema } from "@/components/schama/reportDamage";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { BookingTable, DamageReportTable, EquipmentTable, user } from "@/lib/db/schema";
+import { BookingTable, DamageReportTable, EquipmentTable, RoleRequestTable, user } from "@/lib/db/schema";
 import { TIME_SLOTS } from "@/utils/extraUtils";
 import { and, eq, gt, gte, inArray, lt, lte, or, count, min, asc, desc } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import z from "zod"
 import { sendNotification } from "./notificationActions";
+import { autoExpirePendingBookingsAction } from "./sharedAction";
 
 
 export async function getEquipmentDetailsById(id: string) {
@@ -186,6 +187,7 @@ export const getCheckoutDataAction = async () => {
         }
     }
     try {
+        await autoExpirePendingBookingsAction();
         const [checkoutReq, pendingReq, totalCheckoutReq] = await Promise.all([
             await db.select({ count: count() })
                 .from(BookingTable).where(and(eq(BookingTable.userId, session.user.id), eq(BookingTable.status, 'active'))),
@@ -226,6 +228,7 @@ export const getPendingRequestsAction = async () => {
     }
 
     try {
+        await autoExpirePendingBookingsAction();
         const data = await db.select({
             id: BookingTable.id,
             equipmentName: EquipmentTable.name,
@@ -370,15 +373,8 @@ export const getAllEquipmentListAction = async () => {
 // report-creation-action
 
 export const createReportAction = async (data: z.infer<typeof reportDamageSchema>) => {
-    const session = await auth.api.getSession({
-        headers: await headers()
-    })
-    if (!session?.user.id) {
-        return {
-            success: false,
-            error: "You must be logged in to report."
-        }
-    }
+    const session = await auth.api.getSession({ headers: await headers() });
+    if (!session?.user.id) return { success: false, error: "You must be logged in to report." };
 
     const validatedData = reportDamageSchema.parse(data);
     try {
@@ -389,18 +385,24 @@ export const createReportAction = async (data: z.infer<typeof reportDamageSchema
             description: validatedData.description as string,
             severity: validatedData.severity,
             imageUrl: validatedData.imageUrl as string
-        })
+        });
 
-        return {
-            success: true,
-        }
-    }
-    catch (e) {
-        console.log("Report creation error: ", e);
-        return {
-            success: false,
-            error: "Unexpected error while creating the report."
-        }
+        const equipment = await db.query.EquipmentTable.findFirst({
+            where: eq(EquipmentTable.id, validatedData.equipmentId as string)
+        });
+
+        // NOTIFY USER
+        await sendNotification({
+            userId: session.user.id,
+            type: "damage_reported",
+            title: "Damage Report Received",
+            message: `Thank you for reporting the issue with ${equipment?.name || "your equipment"}. An admin will investigate shortly.`
+        });
+
+        return { success: true };
+    } catch (e) {
+        console.error("Report creation error: ", e);
+        return { success: false, error: "Unexpected error while creating the report." };
     }
 }
 
@@ -458,4 +460,70 @@ export const getUserDamageReportsAction = async () => {
         return 0;
     }
 }
+
+// profile-related-action
+
+export const getUserProfileDataAction=async()=>{
+    const session = await auth.api.getSession({
+        headers: await headers()
+    })
+    if (!session?.user.id) {
+        throw Error("You must be logged in to get your profile data");
+    }
+
+    try{
+        const data=await db.select({
+            id:user.id,
+            name:user.name,
+            email:user.email,
+            emailVerified:user.emailVerified,
+            image:user.image,
+            createdAt:user.createdAt,
+            role:user.role
+        })
+        .from(user)
+        .where(eq(user.id,session.user.id))
+
+        return data;
+    }
+    catch(e){
+        console.log("Profile data finding error: ",e);
+        return [];
+    }
+
+}
+
+export const submitRoleRequestAction = async (requestedRole: string, reason: string) => {
+    const session = await auth.api.getSession({ headers: await headers() });
+    
+    if (!session?.user.id) {
+        return { success: false, error: "Unauthorized. Please log in." };
+    }
+
+    try {
+        // Prevent spam: Check if they already have a pending request
+        const existingRequest = await db.query.RoleRequestTable.findFirst({
+            where: and(
+                eq(RoleRequestTable.userId, session.user.id),
+                eq(RoleRequestTable.status, "pending")
+            )
+        });
+
+        if (existingRequest) {
+            return { success: false, error: "You already have a pending role request." };
+        }
+
+        // Insert the new request
+        await db.insert(RoleRequestTable).values({
+            userId: session.user.id,
+            requestedRole,
+            reason,
+        });
+
+        return { success: true };
+    } catch (error) {
+        console.error("Role request error:", error);
+        return { success: false, error: "Failed to submit role request." };
+    }
+};
 

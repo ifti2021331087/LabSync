@@ -122,7 +122,7 @@ export default async function EquipmentDetailsPage({
 
       {/* 4. The Booking Widget */}
       <div className="pt-4">
-        <div className="flex justify-between gap-2">
+        <div className="flex flex-col md:flex-row justify-between gap-2">
           <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100 mb-4">Availability</h2>
           <Button
             asChild

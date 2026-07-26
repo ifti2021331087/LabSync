@@ -80,7 +80,7 @@ export default function DamageReportCard({ report }: DamageReportCardProps) {
                                     Investigate
                                 </button> :
                                 <button className="bg-[#f0fdf4] dark:bg-green-950/30 border border-[#bbf7d0] dark:border-green-900/50 text-green-700 dark:text-green-400 hover:bg-[#dcfce7] dark:hover:bg-green-900/50 px-3 py-1.5 rounded-md text-xs font-semibold shadow-sm transition-colors">
-                                    Mark resolved
+                                    Resolved
                                 </button>
                     }
                 </div>

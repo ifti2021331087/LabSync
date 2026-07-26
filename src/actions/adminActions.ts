@@ -3,12 +3,16 @@
 import { equipmentSchema } from "@/components/schama/equipment";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { BookingTable, DamageReportTable, EquipmentTable, user, session } from "@/lib/db/schema";
-import { and, asc, count, desc, eq, gt, gte, inArray, lte, min, ne, sql } from "drizzle-orm";
+import { BookingTable, DamageReportTable, EquipmentTable, user, session, RoleRequestTable } from "@/lib/db/schema";
+import { and, asc, count, desc, eq, gt, gte, inArray, lt, lte, min, ne, sql } from "drizzle-orm";
 import { PgTableWithColumns, PgColumn } from "drizzle-orm/pg-core";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import z from "zod";
+import { sendNotification } from "./notificationActions";
+import { EquipmentCategories } from "@/utils/extraUtils";
+import { addDays, endOfDay, endOfWeek, startOfDay, startOfWeek } from "date-fns";
+import { autoExpirePendingBookingsAction } from "./sharedAction";
 
 // dashboard-related-action
 
@@ -35,7 +39,12 @@ export const getDashboardStatsAction = async () => {
             dueTodayReq,
             pendingReq,
             oldestPendingReq,
-            pendingYesterdayReq
+            pendingYesterdayReq,
+            // NEW: Damage Report Queries
+            totalDamageReq,
+            openDamageReq,
+            resolvedDamageReq,
+            criticalDamageReq
         ] = await Promise.all([
             db.select({ count: count() }).from(EquipmentTable),
             db.select({ count: count() }).from(EquipmentTable).where(gte(EquipmentTable.createdAt, startOfMonth)),
@@ -54,7 +63,17 @@ export const getDashboardStatsAction = async () => {
                     eq(BookingTable.status, 'pending'),
                     gte(BookingTable.createdAt, startOfYesterday)
                 )
-            )
+            ),
+            // NEW: Damage Report Executions
+            db.select({ count: count() }).from(DamageReportTable),
+            db.select({ count: count() }).from(DamageReportTable).where(eq(DamageReportTable.status, 'open')),
+            db.select({ count: count() }).from(DamageReportTable).where(eq(DamageReportTable.status, 'resolved')),
+            db.select({ count: count() }).from(DamageReportTable).where(
+                and(
+                    eq(DamageReportTable.status, 'open'),
+                    eq(DamageReportTable.severity, 'critical')
+                )
+            ),
         ]);
 
         const totalItems = totalItemsReq[0].count;
@@ -68,11 +87,166 @@ export const getDashboardStatsAction = async () => {
             dueBackToday: dueTodayReq[0].count,
             pendingApproval: pendingReq[0].count,
             oldestPendingDate: oldestPendingReq[0].oldest,
-            pendingSinceYesterday: pendingYesterdayReq[0].count
+            pendingSinceYesterday: pendingYesterdayReq[0].count,
+            
+            // NEW: Damage Report Data
+            totalDamage: totalDamageReq[0].count,
+            openDamage: openDamageReq[0].count,
+            resolvedDamage: resolvedDamageReq[0].count,
+            criticalDamage: criticalDamageReq[0].count
         };
     } catch (e) {
         console.error("Error fetching stats:", e);
         return null;
+    }
+}
+export const getLiveTickerEventsAction = async () => {
+    try {
+        // 1. Fetch recent bookings
+        const recentBookings = await db.select({
+            id: BookingTable.id,
+            userName: user.name,
+            equipmentName: EquipmentTable.name,
+            status: BookingTable.status,
+            time: BookingTable.updatedAt
+        })
+        .from(BookingTable)
+        .leftJoin(user, eq(user.id, BookingTable.userId))
+        .leftJoin(EquipmentTable, eq(EquipmentTable.id, BookingTable.equipmentId))
+        .orderBy(desc(BookingTable.updatedAt))
+        .limit(5);
+
+        // 2. Fetch recent damage reports
+        const recentDamage = await db.select({
+            id: DamageReportTable.id,
+            equipmentName: EquipmentTable.name,
+            title: DamageReportTable.title,
+            time: DamageReportTable.createdAt
+        })
+        .from(DamageReportTable)
+        .leftJoin(EquipmentTable, eq(EquipmentTable.id, DamageReportTable.equipmentId))
+        .orderBy(desc(DamageReportTable.createdAt))
+        .limit(5);
+
+        const events: { id: string, text: string, type: string, time: Date }[] = [];
+
+        // 3. Format Bookings into ticker phrases
+        recentBookings.forEach(b => {
+            let text = "";
+            let type = "info";
+            
+            if (b.status === 'active') { 
+                text = `${b.userName} checked out ${b.equipmentName}`; 
+                type = "success"; 
+            } else if (b.status === 'returned') { 
+                text = `${b.userName} returned ${b.equipmentName}`; 
+                type = "return"; 
+            } else if (b.status === 'pending') { 
+                text = `${b.userName} requested ${b.equipmentName}`; 
+                type = "pending"; 
+            } else if (b.status === 'late') {
+                text = `${b.userName} is late returning ${b.equipmentName}`;
+                type = "danger";
+            }
+
+            if(text) events.push({ id: `b-${b.id}`, text, type, time: b.time });
+        });
+
+        // 4. Format Damage Reports into ticker phrases
+        recentDamage.forEach(d => {
+            events.push({ 
+                id: `d-${d.id}`, 
+                text: `Damage report: ${d.equipmentName} — ${d.title}`, 
+                type: "danger", 
+                time: d.time 
+            });
+        });
+
+        // 5. Sort all events together by time (newest first) and limit to 8
+        return events.sort((a, b) => b.time.getTime() - a.time.getTime()).slice(0, 8);
+    } catch (e) {
+        console.error("Ticker fetch error:", e);
+        return [];
+    }
+}
+export const getCategoryUtilizationAction = async () => {
+    try {
+        // Fetch all equipment and all active bookings
+        const [allEq, activeBookings] = await Promise.all([
+            db.select({ id: EquipmentTable.id, category: EquipmentTable.category }).from(EquipmentTable),
+            db.select({ equipmentId: BookingTable.equipmentId }).from(BookingTable).where(eq(BookingTable.status, 'active'))
+        ]);
+
+        const activeEqIds = new Set(activeBookings.map(b => b.equipmentId));
+
+        // Calculate stats for each predefined category
+        const stats = EquipmentCategories.map(c => {
+            const catEq = allEq.filter(e => e.category === c.value);
+            const total = catEq.length;
+            const inUse = catEq.filter(e => activeEqIds.has(e.id)).length;
+            const pct = total === 0 ? 0 : Math.round((inUse / total) * 100);
+            return { label: c.label, pct, value: c.value };
+        });
+
+        // Sort by highest utilization
+        return stats.sort((a, b) => b.pct - a.pct);
+    } catch (e) {
+        console.error("Utilization error:", e);
+        return [];
+    }
+}
+export const getOpenDamageWidgetAction = async () => {
+    try {
+        return await db.select({
+            id: DamageReportTable.id,
+            title: DamageReportTable.title,
+            severity: DamageReportTable.severity,
+            createdAt: DamageReportTable.createdAt,
+            equipmentName: EquipmentTable.name,
+            reporterName: user.name,
+        })
+        .from(DamageReportTable)
+        .leftJoin(EquipmentTable, eq(EquipmentTable.id, DamageReportTable.equipmentId))
+        .leftJoin(user, eq(user.id, DamageReportTable.reportedById))
+        .where(eq(DamageReportTable.status, 'open'))
+        .orderBy(desc(DamageReportTable.createdAt))
+        .limit(3);
+    } catch (e) {
+        console.error("Damage widget error:", e);
+        return [];
+    }
+}
+export const getRecentActivityWidgetAction = async () => {
+    try {
+        const recentActivity = await db.select({
+            id: BookingTable.id,
+            status: BookingTable.status,
+            updatedAt: BookingTable.updatedAt,
+            equipmentName: EquipmentTable.name,
+            userName: user.name,
+        })
+        .from(BookingTable)
+        .leftJoin(EquipmentTable, eq(EquipmentTable.id, BookingTable.equipmentId))
+        .leftJoin(user, eq(user.id, BookingTable.userId))
+        .orderBy(desc(BookingTable.updatedAt))
+        .limit(4);
+
+        return recentActivity.map(a => {
+            let title = "";
+            let color = "bg-zinc-400";
+            
+            if (a.status === 'approved') { title = `Checkout approved · ${a.equipmentName}`; color = "bg-green-500"; }
+            else if (a.status === 'denied') { title = `Checkout denied · ${a.equipmentName}`; color = "bg-red-500"; }
+            else if (a.status === 'active') { title = `Equipment picked up · ${a.equipmentName}`; color = "bg-blue-500"; }
+            else if (a.status === 'returned') { title = `Equipment returned · ${a.equipmentName}`; color = "bg-zinc-500"; }
+            else if (a.status === 'pending') { title = `New request · ${a.equipmentName}`; color = "bg-amber-500"; }
+            else { title = `Status updated · ${a.equipmentName}`; }
+
+            return { id: a.id, title, color, time: a.updatedAt, user: a.userName || "System" };
+        });
+    } catch (e) {
+        console.error("Activity widget error:", e);
+        return [];
     }
 }
 
@@ -198,36 +372,45 @@ export const checkEquipmentInUseAction = async (equipmentId: string) => {
 // approval-related-action
 
 export async function reviewBookingAction(bookingId: string, newStatus: "approved" | "denied") {
-
-    const session = await auth.api.getSession({
-        headers: await headers()
-    })
-
+    const session = await auth.api.getSession({ headers: await headers() });
     if (!session || session.user.role !== 'admin') {
         throw new Error("You must be admin to review the booking.");
     }
 
     try {
+        // Fetch booking info BEFORE update for the notification
+        const [booking] = await db.select({ 
+            userId: BookingTable.userId, 
+            equipmentName: EquipmentTable.name 
+        })
+        .from(BookingTable)
+        .leftJoin(EquipmentTable, eq(EquipmentTable.id, BookingTable.equipmentId))
+        .where(eq(BookingTable.id, bookingId));
+
         await db.update(BookingTable).set({
             status: newStatus,
             reviewedById: session.user.id,
             reviewedAt: new Date(),
             updatedAt: new Date()
-        })
+        }).where(eq(BookingTable.id, bookingId));
+
+        // Send Notification
+        if (booking && booking.userId) {
+            await sendNotification({
+                userId: booking.userId,
+                type: newStatus === "approved" ? "booking_approved" : "booking_denied",
+                title: newStatus === "approved" ? "Request Approved" : "Request Denied",
+                message: `Your request for ${booking.equipmentName} was ${newStatus}.`,
+                relatedBookingId: bookingId
+            });
+        }
 
         revalidatePath("/admin/approval");
         revalidatePath("/admin/schedule");
-
-        return {
-            success: true
-        }
-    }
-    catch (e) {
-        console.log("Booking review error: ", e);
-        return {
-            success: false,
-            error: "An unexpected error occurred while reviewing the booking."
-        }
+        return { success: true }
+    } catch (e) {
+        console.error("Booking review error: ", e);
+        return { success: false, error: "An unexpected error occurred while reviewing the booking." }
     }
 }
 
@@ -241,6 +424,7 @@ export const pendingBookingAction = async () => {
     }
 
     try {
+        await autoExpirePendingBookingsAction();
         const result = await db.select(
             {
                 id: BookingTable.id,
@@ -250,12 +434,14 @@ export const pendingBookingAction = async () => {
                 equipmentTag: EquipmentTable.internalTag,
                 startTime: BookingTable.startTime,
                 endTime: BookingTable.endTime,
-                status: BookingTable.status
+                status: BookingTable.status,
+                createdAt: BookingTable.createdAt
             }
         ).from(BookingTable)
             .leftJoin(EquipmentTable, () => eq(BookingTable.equipmentId, EquipmentTable.id))
             .leftJoin(user, () => eq(BookingTable.userId, user.id))
             .where(eq(BookingTable.status, 'pending'))
+            .orderBy(asc(BookingTable.createdAt));
         return result;
     }
     catch (e) {
@@ -360,6 +546,51 @@ export const getWeeklyEquipmentStatsAction = async (equipmentId: string, weekSta
         }))
     }
 }
+export const getWeeklyScheduleAction = async (dateString: string) => {
+    const session = await auth.api.getSession({ headers: await headers() });
+    if (!session || session.user.role !== 'admin') {
+        throw new Error("Unauthorized");
+    }
+
+    // 1. Start exactly on the provided date (defaults to today)
+    const baseDate = new Date(dateString);
+    const weekStart = startOfDay(baseDate);
+    
+    // 2. End exactly 6 days later (total of 7 days) at 23:59:59
+    const weekEnd = endOfDay(addDays(baseDate, 6));
+
+    try {
+        const equipment = await db.select({
+            id: EquipmentTable.id,
+            name: EquipmentTable.name,
+            internalTag: EquipmentTable.internalTag
+        }).from(EquipmentTable).orderBy(EquipmentTable.name);
+
+        const bookings = await db.select({
+            id: BookingTable.id,
+            equipmentId: BookingTable.equipmentId,
+            userName: user.name,
+            startTime: BookingTable.startTime,
+            endTime: BookingTable.endTime,
+            status: BookingTable.status
+        })
+        .from(BookingTable)
+        .leftJoin(user, eq(user.id, BookingTable.userId))
+        .where(
+            and(
+                // Overlap formula remains the same
+                lt(BookingTable.startTime, weekEnd),
+                gt(BookingTable.endTime, weekStart),
+                inArray(BookingTable.status, ['active', 'approved', 'pending', 'late'])
+            )
+        );
+
+        return { equipment, bookings, weekStart, weekEnd };
+    } catch (e) {
+        console.error("Weekly schedule error:", e);
+        return { equipment: [], bookings: [], weekStart, weekEnd };
+    }
+}
 
 
 // checkout-related-actions
@@ -444,34 +675,32 @@ export const getAwaitingReturnAction = async () => {
 export const grantEquipmentAction = async (bookingId: string) => {
     try {
         const [booking] = await db.select({
-            equipmentId: BookingTable.equipmentId
+            equipmentId: BookingTable.equipmentId,
+            userId: BookingTable.userId,
+            equipmentName: EquipmentTable.name
         })
-            .from(BookingTable)
-            .where(eq(BookingTable.id, bookingId))
+        .from(BookingTable)
+        .leftJoin(EquipmentTable, eq(EquipmentTable.id, BookingTable.equipmentId))
+        .where(eq(BookingTable.id, bookingId));
 
-        if (!booking || !booking.equipmentId) {
-            return {
-                success: false,
-                error: "Booking or equipment not found!"
-            }
-        }
+        if (!booking || !booking.equipmentId) return { success: false, error: "Booking or equipment not found!" };
 
-        await db.update(BookingTable).set({
-            status: 'active'
-        }).where(eq(BookingTable.id, bookingId));
+        await db.update(BookingTable).set({ status: 'active' }).where(eq(BookingTable.id, bookingId));
+        await db.update(EquipmentTable).set({ stock: sql`${EquipmentTable.stock} - 1` }).where(eq(EquipmentTable.id, booking.equipmentId));
 
-        await db.update(EquipmentTable).set({
-            stock: sql`${EquipmentTable.stock} - 1`
-        }).where(eq(EquipmentTable.id, booking.equipmentId));
+        // NOTIFY USER
+        await sendNotification({
+            userId: booking.userId,
+            type: "checkout_active",
+            title: "Equipment Picked Up",
+            message: `You have successfully picked up ${booking.equipmentName}.`,
+            relatedBookingId: bookingId
+        });
 
         revalidatePath('/admin');
         revalidatePath('/admin/handoff');
-
-        return {
-            success: true
-        }
-    }
-    catch (e) {
+        return { success: true };
+    } catch (e) {
         console.error("🔥 FATAL CHECKOUT ERROR: ", e);
         return { success: false, error: "Failed to checkout" };
     }
@@ -480,17 +709,20 @@ export const returnEquipmentAction = async (bookingId: string) => {
     try {
         const [booking] = await db.select({
             equipmentId: BookingTable.equipmentId,
+            userId: BookingTable.userId,
             startTime: BookingTable.startTime,
             endTime: BookingTable.endTime,
+            equipmentName: EquipmentTable.name
         })
-            .from(BookingTable)
-            .where(eq(BookingTable.id, bookingId));
+        .from(BookingTable)
+        .leftJoin(EquipmentTable, eq(EquipmentTable.id, BookingTable.equipmentId))
+        .where(eq(BookingTable.id, bookingId));
 
-        if (!booking || !booking.equipmentId) {
-            return { success: false, error: "Booking or equipment not found" };
-        }
+        if (!booking || !booking.equipmentId) return { success: false, error: "Booking or equipment not found" };
+
         const currentTime = new Date();
         const isLate = currentTime > booking.endTime;
+        
         await db.update(BookingTable)
             .set({ status: isLate ? 'late' : 'returned' })
             .where(eq(BookingTable.id, bookingId));
@@ -498,6 +730,15 @@ export const returnEquipmentAction = async (bookingId: string) => {
         await db.update(EquipmentTable)
             .set({ stock: sql`${EquipmentTable.stock} + 1` })
             .where(eq(EquipmentTable.id, booking.equipmentId));
+
+        // NOTIFY USER
+        await sendNotification({
+            userId: booking.userId,
+            type: isLate ? "checkout_late" : "checkout_returned",
+            title: isLate ? "Late Return Recorded" : "Equipment Returned",
+            message: `Your return of ${booking.equipmentName || "equipment"} was successfully recorded${isLate ? " past the due time" : ""}.`,
+            relatedBookingId: bookingId
+        });
 
         revalidatePath('/admin');
         revalidatePath('/admin/handoff');
@@ -593,61 +834,75 @@ export const getDamageReportDetailsByIdAction = async (reportId: string) => {
 }
 
 export const handleInvestigateAction = async (reportId: string) => {
-    const session = await auth.api.getSession({
-        headers: await headers()
-    });
+    const session = await auth.api.getSession({ headers: await headers() });
+    if (!session || session.user.role !== 'admin') throw new Error("Unauthorized");
 
-    if (!session || session.user.role !== 'admin') {
-        throw new Error("You must be admin to investigate the report.");
-    }
     try {
-        await db.update(DamageReportTable).set({
-            status: 'investigating',
-        }).where(eq(DamageReportTable.id, reportId))
+        // Fetch report to get reporter's ID for notification
+        const [report] = await db.select({ 
+            reportedById: DamageReportTable.reportedById,
+            equipmentName: EquipmentTable.name
+        })
+        .from(DamageReportTable)
+        .leftJoin(EquipmentTable, eq(EquipmentTable.id, DamageReportTable.equipmentId))
+        .where(eq(DamageReportTable.id, reportId));
+
+        await db.update(DamageReportTable).set({ status: 'investigating' }).where(eq(DamageReportTable.id, reportId));
+
+        // NOTIFY USER
+        if (report && report.reportedById) {
+            await sendNotification({
+                userId: report.reportedById,
+                type: "damage_investigating",
+                title: "Report Status Updated",
+                message: `Your damage report for ${report.equipmentName} is now under investigation by admins.`
+            });
+        }
 
         revalidatePath(`/admin/damageReport/${reportId}`);
         revalidatePath(`/admin/damageReport`, 'layout');
-
-        return {
-            success: true
-        }
-
-    }
-    catch (e) {
-        console.log("Investigation toggle error: ", e);
-        return {
-            success: false,
-            error: "Unexpected error while investigating the report..."
-        }
+        return { success: true };
+    } catch (e) {
+        console.error("Investigation toggle error: ", e);
+        return { success: false, error: "Unexpected error while investigating the report..." };
     }
 }
-export const handleResolveAction = async (reportId: string) => {
-    const session = await auth.api.getSession({
-        headers: await headers()
-    });
 
-    if (!session || session.user.role !== 'admin') {
-        throw new Error("You must be admin to resolve the report.");
-    }
+export const handleResolveAction = async (reportId: string) => {
+    const session = await auth.api.getSession({ headers: await headers() });
+    if (!session || session.user.role !== 'admin') throw new Error("Unauthorized");
+
     try {
+        const [report] = await db.select({ 
+            reportedById: DamageReportTable.reportedById,
+            equipmentName: EquipmentTable.name
+        })
+        .from(DamageReportTable)
+        .leftJoin(EquipmentTable, eq(EquipmentTable.id, DamageReportTable.equipmentId))
+        .where(eq(DamageReportTable.id, reportId));
+
         await db.update(DamageReportTable).set({
             status: 'resolved',
             resolvedById: session.user.id,
             resolvedAt: new Date()
-        }).where(eq(DamageReportTable.id, reportId))
+        }).where(eq(DamageReportTable.id, reportId));
+
+        // NOTIFY USER
+        if (report && report.reportedById) {
+            await sendNotification({
+                userId: report.reportedById,
+                type: "damage_resolved",
+                title: "Report Resolved",
+                message: `Your damage report for ${report.equipmentName} has been resolved.`
+            });
+        }
 
         revalidatePath(`/admin/damageReport/${reportId}`);
         revalidatePath(`/admin/damageReport`, 'layout');
-        return {
-            success: true
-        }
-    }
-    catch (e) {
-        console.log("Resolve toggle error: ", e);
-        return {
-            success: false,
-            error: "Unexpected error while resolving the report..."
-        }
+        return { success: true };
+    } catch (e) {
+        console.error("Resolve toggle error: ", e);
+        return { success: false, error: "Unexpected error while resolving the report..." };
     }
 }
 
@@ -802,3 +1057,96 @@ export const deleteUserByIdAction = async (userId: string) => {
         }
     }
 }
+
+// roles && access
+export const getPendingRoleRequestsAction = async () => {
+    const session = await auth.api.getSession({ headers: await headers() });
+    
+    if (!session || session.user.role !== 'admin') {
+        throw new Error("Unauthorized. Admins only.");
+    }
+
+    try {
+        // Fetch all pending requests along with the user's details
+        const pendingRequests = await db.select({
+            id: RoleRequestTable.id,
+            requestedRole: RoleRequestTable.requestedRole,
+            reason: RoleRequestTable.reason,
+            createdAt: RoleRequestTable.createdAt,
+            userName: user.name,
+            userEmail: user.email,
+            currentRole: user.role,
+        })
+        .from(RoleRequestTable)
+        .leftJoin(user, eq(RoleRequestTable.userId, user.id))
+        .where(eq(RoleRequestTable.status, "pending"))
+        .orderBy(desc(RoleRequestTable.createdAt));
+
+        return pendingRequests;
+    } catch (error) {
+        console.error("Fetch pending requests error:", error);
+        return [];
+    }
+};
+export const reviewRoleRequestAction = async (requestId: string, status: "approved" | "denied") => {
+    const session = await auth.api.getSession({ headers: await headers() });
+    
+    if (!session || session.user.role !== 'admin') {
+        return { success: false, error: "Unauthorized. Admins only." };
+    }
+
+    try {
+        // Find the specific request
+        const [request] = await db.select()
+            .from(RoleRequestTable)
+            .where(eq(RoleRequestTable.id, requestId));
+
+        if (!request) {
+            return { success: false, error: "Request not found." };
+        }
+
+        // Update the request's status and record who reviewed it
+        await db.update(RoleRequestTable).set({
+            status: status,
+            reviewedById: session.user.id,
+            reviewedAt: new Date()
+        }).where(eq(RoleRequestTable.id, requestId));
+
+        // If the admin approved it, actually update the user's role
+        if (status === "approved") {
+            await db.update(user).set({
+                role: request.requestedRole
+            }).where(eq(user.id, request.userId));
+        }
+
+        // Revalidate the members or roles page so the UI updates instantly
+        revalidatePath("/admin/members"); 
+        revalidatePath("/admin/roles"); 
+
+        return { success: true };
+    } catch (error) {
+        console.error("Review role request error:", error);
+        return { success: false, error: "Failed to process role request." };
+    }
+};
+
+// admin-profile
+export const getAdminProfileDataAction = async () => {
+    const session = await auth.api.getSession({ headers: await headers() });
+    
+    // Ensure only admins can fetch this data
+    if (!session || session.user.role !== 'admin') {
+        return null;
+    }
+
+    try {
+        const [adminData] = await db.select()
+            .from(user)
+            .where(eq(user.id, session.user.id));
+            
+        return adminData;
+    } catch (error) {
+        console.error("Error fetching admin profile:", error);
+        return null;
+    }
+};

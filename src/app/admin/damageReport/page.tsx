@@ -30,10 +30,11 @@ export default async function DamageReport({
                 </div>
                 
                 {/* Made button full width on mobile (w-full) and auto on tablet+ (sm:w-auto) */}
-                <Button className="w-full sm:w-auto bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200 rounded-lg shadow-sm transition-colors py-5 sm:py-2">
+                {/* <Button className="w-full sm:w-auto bg-zinc-900 text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200 rounded-lg shadow-sm transition-colors py-5 sm:py-2">
                     <Plus className="w-[18px] h-[18px] sm:w-4 sm:h-4 mr-2" /> 
                     Log new report
-                </Button>
+                </Button> */}
+                {/* TO-DO -->>If needed */}
             </div>
 
             {/* Filters Section (Wraps automatically on small screens) */}

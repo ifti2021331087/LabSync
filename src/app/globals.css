@@ -128,3 +128,22 @@
     @apply font-sans;
   }
 }
+
+@keyframes ticker-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-100%);
+  }
+}
+
+.animate-ticker {
+  /* Adjust the 30s to change the speed */
+  animation: ticker-scroll 30s linear infinite;
+}
+
+/* Pause the scrolling when the admin hovers over it */
+.ticker-wrapper:hover .animate-ticker {
+  animation-play-state: paused;
+}

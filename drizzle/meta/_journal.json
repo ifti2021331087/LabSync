@@ -71,6 +71,13 @@
       "when": 1784835935710,
       "tag": "0009_chunky_doctor_doom",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1785077571959,
+      "tag": "0010_tired_loki",
+      "breakpoints": true
     }
   ]
 }

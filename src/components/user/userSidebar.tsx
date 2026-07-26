@@ -9,10 +9,8 @@ import { cn } from "@/lib/utils";
 export default function UserSidebar() {
   const pathname = usePathname();
 
-  // Helper function to determine if a link is active
   const isActive = (path: string) => pathname === path;
 
-  // Reusable button styles based on active state
   const getButtonStyles = (path: string) => cn(
     "justify-start w-full text-sm h-9 px-3 transition-colors",
     isActive(path)
@@ -21,7 +19,11 @@ export default function UserSidebar() {
   );
 
   return (
-    <aside className="hidden md:flex w-[260px] flex-col bg-white dark:bg-zinc-950 border-r py-6 px-4 shrink-0 gap-8 overflow-y-auto">
+    <aside className={cn(
+      "hidden md:flex w-[260px] flex-col bg-white dark:bg-zinc-950 border-r py-6 px-4 shrink-0 gap-8",
+      // 1. ADDED: Sticky positioning and exact height calculation
+      "sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto" 
+    )}>
       
       <div className="flex flex-col gap-1">
         <h4 className="px-3 mb-2 text-[11px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">

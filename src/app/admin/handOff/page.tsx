@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { getReadyForPickupAction, getAwaitingReturnAction } from '@/actions/adminActions';
 import GrantButton from '@/components/admin/grantButton';
 import ReturnButton from '@/components/admin/returnButton';

@@ -154,3 +154,13 @@ export function formatCheckoutTime(start: Date | string, end: Date | string): st
   // 4. Combine and return
   return `${dateStr} · ${durationStr}`;
 }
+
+export function getDaysAgoText(date: Date | null) {
+    if (!date) return 'N/A';
+    const diffTime = Math.abs(new Date().getTime() - new Date(date).getTime());
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) return 'today';
+    if (diffDays === 1) return 'yesterday';
+    return `${diffDays} days ago`;
+}

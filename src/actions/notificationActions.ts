@@ -8,7 +8,20 @@ import { headers } from "next/headers";
 
 interface SendNotificationParams {
     userId: string;
-    type: "booking_approved" | "booking_denied" | "booking_submitted" | "return_reminder" | "damage_reported" | "system";
+    type:
+        | "booking_submitted"    // Blue send icon
+        | "booking_approved"     // Green check icon
+        | "booking_denied"       // Red 'X' icon
+        | "booking_cancelled"    // Gray/Red cancel icon
+        | "checkout_active"      // Equipment handed over to user
+        | "checkout_returned"    // Equipment returned successfully
+        | "checkout_late"        // Equipment returned late / marked as overdue
+        | "return_reminder"      // Amber clock icon
+        | "damage_reported"      // Alert icon (User submitted)
+        | "damage_investigating" // Admin is looking into the damage
+        | "damage_resolved"      // Admin resolved the damage
+        | "equipment_added"      // New equipment added to catalog
+        | "system";
     title: string;
     message: string;
     relatedBookingId?: string;

@@ -1,6 +1,7 @@
 import { pgEnum } from "drizzle-orm/pg-core";
 
 export const userRolesEnum=pgEnum("user_role",["student","faculty","admin"]);
+export const roleRequestStatusEnum = pgEnum("role_request_status", ["pending", "approved", "denied"]);
 export const equipmentConditionEnum = pgEnum("equipment_condition", ["excellent", "good", "fair", "poor"]);
 export const equipmentStatusEnum = pgEnum("equipment_status", ["active", "maintenance", "retired"]);
 export const bookingStatusEnum = pgEnum("booking_status", [
@@ -10,7 +11,8 @@ export const bookingStatusEnum = pgEnum("booking_status", [
   "returned",  
   "denied",    
   "cancelled",
-  "late"       
+  "late",
+  "expired"       
 ]);
 export const damageSeverityEnum = pgEnum("damage_severity", ["cosmetic", "functional", "critical"]);
 export const damageStatusEnum = pgEnum("damage_status", ["open", "investigating", "resolved"]);

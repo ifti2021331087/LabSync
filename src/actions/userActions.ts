@@ -428,7 +428,12 @@ export const getUserAllCompletedCheckoutsAction = async () => {
             .from(BookingTable)
             .leftJoin(user, () => eq(user.id, BookingTable.userId))
             .leftJoin(EquipmentTable, () => eq(EquipmentTable.id, BookingTable.equipmentId))
-            .where(inArray(BookingTable.status, ['late', 'returned']))
+            .where(
+                and(
+                    eq(BookingTable.userId, userId), // Make sure to only fetch THIS user's history!
+                    inArray(BookingTable.status, ['late', 'returned'])
+                )
+            );
 
         return data;
     }
@@ -443,7 +448,7 @@ export const getUserDamageReportsAction = async () => {
         headers: await headers()
     })
     if (!session?.user.id) {
-        return [];
+        return 0;
     }
     const userId = session.user.id;
     try {
@@ -453,7 +458,7 @@ export const getUserDamageReportsAction = async () => {
             .from(DamageReportTable)
             .where(eq(DamageReportTable.reportedById, userId))
 
-        return data.totalReport;
+        return data.totalReport ?? 0;
     }
     catch (e) {
         console.log(e);

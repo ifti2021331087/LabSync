@@ -49,7 +49,7 @@ export default function UserMenu() {
                             {session.user.image ? (
                                 <Image src={session.user.image} alt="User" className="w-8 h-8 rounded-full" width={32} height={32} />
                             ) : (
-                                <span>Menu</span>
+                                <span>{session.user.name}</span>
                             )}
                         </DropdownMenuTrigger>
 

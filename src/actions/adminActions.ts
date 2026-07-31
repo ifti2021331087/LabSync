@@ -1095,6 +1095,13 @@ export const reviewRoleRequestAction = async (requestId: string, status: "approv
         return { success: false, error: "Unauthorized. Admins only." };
     }
 
+    if (session.user.email === "admin@test.com") {
+        return { 
+            success: true, 
+            message: `Demo Mode: Role request ${status} simulated successfully!` 
+        };
+    }
+    
     try {
         // Find the specific request
         const [request] = await db.select()

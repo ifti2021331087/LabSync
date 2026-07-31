@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
   Card,
@@ -17,14 +17,12 @@ import { toast } from "sonner"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import z from "zod"
-import { auth } from "@/lib/auth";
 import { authClient, signIn } from "@/lib/auth-client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 const formSchema = z.object({
-  email: z
-    .string().email("Enter a valid email address."),
+  email: z.string().email("Enter a valid email address."),
   password: z
     .string()
     .min(6, "Password must be at least 6 characters.")
@@ -44,28 +42,26 @@ export default function SignIn() {
   const router = useRouter();
 
   async function onSubmit(data: SignInFormValues) {
-
-    const { error } = await authClient.signIn.email({
+    await authClient.signIn.email({
       email: data.email,
       password: data.password,
       callbackURL: "/",
       rememberMe: false
     }, {
-      onRequest: (ctx) => {
+      onRequest: () => {
         setIsLoading(true);
       },
-      onSuccess: (ctx) => {
+      onSuccess: () => {
         setIsLoading(false);
         router.push("/");
       },
       onError: (ctx) => {
         setIsLoading(false);
-        // console.log(ctx.error.message)
-        toast.error(ctx.error.message || "Please sign up to at first");
+        toast.error(ctx.error.message || "Please sign up first");
       },
     })
-
   }
+
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
     try {
@@ -74,28 +70,31 @@ export default function SignIn() {
         callbackURL: "/",
         errorCallbackURL: "/error",
         newUserCallbackURL: "/",
-        // disableRedirect: true,
       })
-    }
-    catch (e) {
-      console.log("Sign in failed ",e);
-      toast.error("Failed to signIn with google");
-    }
-    finally {
+    } catch (e) {
+      console.log("Sign in failed ", e);
+      toast.error("Failed to sign in with Google");
+    } finally {
       setIsLoading(false);
     }
   }
 
+  // Helper to autofill and submit demo accounts
+  const fillDemoAccount = (email: string) => {
+    form.setValue("email", email);
+    form.setValue("password", "12345678"); // Change to your actual test account password
+    form.handleSubmit(onSubmit)();
+  };
 
   return (
-    <Card className="w-full max-w-sm ">
+    <Card className="w-full max-w-sm">
       <CardHeader>
         <CardTitle>Sign in to your account</CardTitle>
         <CardDescription>
           Enter your email below to login to your account
         </CardDescription>
         <CardAction>
-          <Button variant="link" className={"cursor-pointer"}>
+          <Button variant="link" className="cursor-pointer">
             <Link href={"/auth/signUp"}>Sign Up</Link>
           </Button>
         </CardAction>
@@ -120,7 +119,8 @@ export default function SignIn() {
               <div className="flex items-center">
                 <Label htmlFor="password">Password</Label>
               </div>
-              <Input id="password"
+              <Input
+                id="password"
                 type="password"
                 required
                 {...form.register("password")}
@@ -131,12 +131,50 @@ export default function SignIn() {
             </div>
           </div>
         </form>
+
+        {/* --- DEMO ACCOUNTS SECTION --- */}
+        <div className="mt-6 flex flex-col gap-2 border-t pt-4 border-zinc-200 dark:border-zinc-800">
+          <p className="text-xs text-center text-muted-foreground font-medium">
+            Quick Test Accounts
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full text-xs cursor-pointer border border-amber-500/30 hover:bg-amber-500/10"
+              onClick={() => fillDemoAccount("admin@test.com")}
+              disabled={isLoading}
+            >
+              Test Admin
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="w-full text-xs cursor-pointer border border-blue-500/30 hover:bg-blue-500/10"
+              onClick={() => fillDemoAccount("user@test.com")}
+              disabled={isLoading}
+            >
+              Test User
+            </Button>
+          </div>
+        </div>
+        {/* ----------------------------- */}
       </CardContent>
       <CardFooter className="flex-col gap-2">
-        <Button type="submit" form="form-rhf-demo" className="w-full cursor-pointer">
-          Sign in
+        <Button
+          type="submit"
+          form="form-rhf-demo"
+          className="w-full cursor-pointer"
+          disabled={isLoading}
+        >
+          {isLoading ? "Signing in..." : "Sign in"}
         </Button>
-        <Button variant="outline" className="w-full cursor-pointer" onClick={handleGoogleSignIn}>
+        <Button
+          variant="outline"
+          className="w-full cursor-pointer"
+          onClick={handleGoogleSignIn}
+          disabled={isLoading}
+        >
           Sign in with Google
         </Button>
       </CardFooter>

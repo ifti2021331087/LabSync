@@ -4,8 +4,10 @@ import { admin } from "better-auth/plugins";
 import { nextCookies } from "better-auth/next-js";
 import { db } from "./db";
 import * as schema from "./db/schema"
+
 const adminRole = 'admin';
-const userRole = 'user';
+const defaultRole = 'student'; 
+
 export const auth = betterAuth({
     account: {
         accountLinking: {
@@ -15,7 +17,7 @@ export const auth = betterAuth({
     secret: process.env.BETTER_AUTH_SECRET,
     baseURL: process.env.BETTER_AUTH_URL,
     database: drizzleAdapter(db, {
-        provider: "pg", // or "mysql", "sqlite"
+        provider: "pg",
         schema: schema
     }),
     emailAndPassword: {
@@ -30,7 +32,7 @@ export const auth = betterAuth({
                     name: profile.name,
                     email: profile.email,
                     image: profile.picture,
-                    role: userRole
+                    role: defaultRole 
                 }
             }
         },
@@ -38,7 +40,7 @@ export const auth = betterAuth({
     plugins: [
         admin({
             adminRoles: [adminRole],
-            defaultRole: userRole
+            defaultRole: defaultRole 
         }),
         nextCookies(),
     ]

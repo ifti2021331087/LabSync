@@ -1,0 +1,1 @@
+ALTER TABLE "bookings" ADD COLUMN "accessory_ids" uuid[] DEFAULT '{}';
